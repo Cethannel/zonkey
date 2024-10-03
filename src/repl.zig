@@ -1,6 +1,7 @@
 const std = @import("std");
 const lexer = @import("lexer.zig");
 const token = @import("token.zig");
+const parser = @import("parser.zig");
 
 const PROMPT = ">> ";
 
@@ -17,16 +18,30 @@ pub fn start(in: std.fs.File, out: std.fs.File, galloc: std.mem.Allocator) !void
         try std.fmt.format(writer, "{s}", .{PROMPT});
         const line = try reader.readUntilDelimiter(&buff, '\n');
 
-        var l = lexer.Lexer.init(line, alloc);
-
-        var tok = l.next_token();
-
-        while (!std.mem.eql(u8, @tagName(tok), @tagName(token.Token.EOF))) {
-            try std.fmt.format(writer, "{s}\n", .{try tok.to_string()});
-
-            tok = l.next_token();
+        const l = lexer.Lexer.init(line, alloc);
+        var p = parser.Parser.init(l) catch unreachable;
+        const program = p.parse_program() catch unreachable;
+        if (p.errors.items.len != 0) {
+            try printParseErrors(writer, p.errors);
+            continue;
         }
+
+        try writer.writeAll(try program.String(alloc));
+        try writer.writeAll("\n");
 
         arena.deinit();
     }
+}
+
+fn printParseErrors(
+    writer: @TypeOf(std.io.getStdOut().writer()),
+    errors: parser.Parser.Errors,
+) !void {
+    for (errors.items) |err| {
+        try std.fmt.format(writer, "\t{s}\n", .{err});
+    }
+}
+
+test {
+    @import("std").testing.refAllDecls(@This());
 }

@@ -124,6 +124,53 @@ pub const Token = union(enum) {
             },
         }
     }
+
+    pub fn token_literal(self: Token) ![]const u8 {
+        switch (self) {
+            .IDENT => |ident| {
+                return ident.ident;
+            },
+            .INT => |ident| {
+                return ident.int;
+            },
+            .BANG => {
+                return "!";
+            },
+            .MINUS => {
+                return "-";
+            },
+            .PLUS => {
+                return "+";
+            },
+            .ASTERISK => {
+                return "*";
+            },
+            .SLASH => {
+                return "/";
+            },
+            .GT => {
+                return ">";
+            },
+            .LT => {
+                return "<";
+            },
+            .EQ => {
+                return "==";
+            },
+            .NOT_EQ => {
+                return "!=";
+            },
+            .TRUE => {
+                return "true";
+            },
+            .FALSE => {
+                return "false";
+            },
+            else => {
+                return @tagName(self);
+            },
+        }
+    }
 };
 
 const IdentMap = chm.ComptimeStringHashMap(Token, .{

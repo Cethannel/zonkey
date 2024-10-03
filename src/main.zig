@@ -17,5 +17,9 @@ test "simple test" {
 }
 
 test {
+    const lexer = @import("lexer.zig");
+    _ = lexer;
+    const parser = @import("parser.zig");
+    _ = parser;
     @import("std").testing.refAllDecls(@This());
 }
