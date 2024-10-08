@@ -21,5 +21,7 @@ test {
     _ = lexer;
     const parser = @import("parser.zig");
     _ = parser;
+    const evaluator = @import("evaluator.zig");
+    _ = evaluator;
     @import("std").testing.refAllDecls(@This());
 }

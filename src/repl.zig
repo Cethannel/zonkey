@@ -2,12 +2,16 @@ const std = @import("std");
 const lexer = @import("lexer.zig");
 const token = @import("token.zig");
 const parser = @import("parser.zig");
+const evaluator = @import("evaluator.zig");
+const object = @import("object.zig");
 
 const PROMPT = ">> ";
 
 pub fn start(in: std.fs.File, out: std.fs.File, galloc: std.mem.Allocator) !void {
     var scanner = std.io.bufferedReader(in.reader());
     var reader = scanner.reader();
+    var env = object.Environment.init(galloc);
+    defer env.deinit();
 
     const writer = out.writer();
 
@@ -26,7 +30,8 @@ pub fn start(in: std.fs.File, out: std.fs.File, galloc: std.mem.Allocator) !void
             continue;
         }
 
-        try writer.writeAll(try program.String(alloc));
+        const evaluated = try evaluator.eval(program, &env);
+        try writer.writeAll(try evaluated.inspect(alloc));
         try writer.writeAll("\n");
 
         arena.deinit();
