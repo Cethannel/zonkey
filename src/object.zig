@@ -1,6 +1,8 @@
 const std = @import("std");
 const ast = @import("ast.zig");
 
+pub const BuiltinFn = fn (args: []Object, env: *Environment) anyerror!Object;
+
 pub const Object = union(enum) {
     Integer: struct {
         value: i64,
@@ -19,6 +21,15 @@ pub const Object = union(enum) {
         parameters: std.ArrayList(ast.Identifier),
         body: ast.Block,
         env: *Environment,
+    },
+    String: struct {
+        value: []const u8,
+    },
+    Builtin: struct {
+        fun: *const BuiltinFn,
+    },
+    Array: struct {
+        elements: std.ArrayList(Object),
     },
 
     pub fn inspect(o: *const Object, alloc: std.mem.Allocator) ![]const u8 {
@@ -45,13 +56,34 @@ pub const Object = union(enum) {
                 try writer.writeAll("fn(");
                 for (obj.parameters.items, 0..) |param, i| {
                     if (i != 0) {
-                        try writer.writeAll(" ,");
+                        try writer.writeAll(", ");
                     }
                     try writer.writeAll(param.string());
                 }
                 try writer.writeAll(") {\n");
                 try writer.writeAll(try obj.body.string(alloc));
                 try writer.writeAll("\n}");
+
+                return out.items;
+            },
+            .String => |obj| {
+                return obj.value;
+            },
+            .Builtin => {
+                return "builtin function";
+            },
+            .Array => |obj| {
+                var out = std.ArrayList(u8).init(alloc);
+                var writer = out.writer();
+
+                try writer.writeAll("[");
+                for (obj.elements.items, 0..) |param, i| {
+                    if (i != 0) {
+                        try writer.writeAll(", ");
+                    }
+                    try writer.writeAll(try param.inspect(alloc));
+                }
+                try writer.writeAll("]");
 
                 return out.items;
             },
@@ -91,11 +123,26 @@ pub const Environment = struct {
         return obj;
     }
 
+    pub fn print(env: *const Environment) void {
+        std.debug.print("{{\n", .{});
+        var iter = env.store.iterator();
+        while (iter.next()) |item| {
+            std.debug.print("{s},\n", .{item.key_ptr.*});
+        }
+        std.debug.print("\n", .{});
+        if (env.outer) |outer| {
+            outer.print();
+        }
+        std.debug.print("}}\n", .{});
+    }
+
     pub inline fn set(
         env: *Environment,
         name: []const u8,
         value: Object,
     ) !void {
-        try env.store.put(name, value);
+        const aName = try env.alloc.alloc(u8, name.len);
+        @memcpy(aName, name);
+        try env.store.put(aName, value);
     }
 };

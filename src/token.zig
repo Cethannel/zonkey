@@ -13,6 +13,10 @@ pub const Token = union(enum) {
         int: [:0]const u8,
         alloc: std.mem.Allocator,
     },
+    STRING: struct {
+        str: [:0]const u8,
+        alloc: std.mem.Allocator,
+    },
 
     ASSIGN, // =
     PLUS, // +
@@ -34,6 +38,8 @@ pub const Token = union(enum) {
     RPAREN, // )
     LBRACE, // {
     RBRACE, // }
+    LBRACKET, // [
+    RBRACKET, // ]
 
     FUNCTION,
     LET,
@@ -82,6 +88,19 @@ pub const Token = union(enum) {
         } };
     }
 
+    pub fn test_new_str(str: []const u8, alloc: std.mem.Allocator) !Token {
+        const builtin = @import("builtin");
+        if (!builtin.is_test) {
+            @panic("This function cannot be used outside of test");
+        }
+        const val = try alloc.allocSentinel(u8, str.len, 0);
+        @memcpy(val, str);
+        return Token{ .STRING = .{
+            .alloc = alloc,
+            .str = val,
+        } };
+    }
+
     pub fn deinit(self: Token) !void {
         switch (self) {
             .IDENT => |value| {
@@ -89,6 +108,9 @@ pub const Token = union(enum) {
             },
             .INT => |value| {
                 value.alloc.free(value.int);
+            },
+            .STRING => |value| {
+                value.alloc.free(value.str);
             },
             else => {},
         }
@@ -118,6 +140,9 @@ pub const Token = union(enum) {
                 );
 
                 return out.items;
+            },
+            .STRING => |string| {
+                return std.fmt.allocPrint(string.alloc, "\"{s}\"", string);
             },
             else => {
                 return @tagName(self);
@@ -165,6 +190,12 @@ pub const Token = union(enum) {
             },
             .FALSE => {
                 return "false";
+            },
+            .LBRACKET => {
+                return "[";
+            },
+            .RBRACKET => {
+                return "]";
             },
             else => {
                 return @tagName(self);

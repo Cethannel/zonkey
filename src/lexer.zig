@@ -97,6 +97,21 @@ pub const Lexer = struct {
             '}' => {
                 tok = .RBRACE;
             },
+            '[' => {
+                tok = .LBRACKET;
+            },
+            ']' => {
+                tok = .RBRACKET;
+            },
+            '"' => {
+                const str = l.read_string();
+                const string = l.allocator.allocSentinel(u8, str.len, 0) catch @panic("Failed to alloc digit");
+                @memcpy(string, str);
+                tok = .{ .STRING = .{
+                    .alloc = l.allocator,
+                    .str = string,
+                } };
+            },
             0 => {
                 tok = .EOF;
             },
@@ -121,6 +136,17 @@ pub const Lexer = struct {
 
         l.read_char();
         return tok;
+    }
+
+    fn read_string(l: *Lexer) []const u8 {
+        const position = l.position + 1;
+        while (true) {
+            l.read_char();
+            if (l.ch == '"' or l.ch == 0) {
+                break;
+            }
+        }
+        return l.input[position..l.position];
     }
 
     fn read_ident(l: *Lexer) []const u8 {
@@ -188,6 +214,9 @@ test "Next Token" {
         \\
         \\ 10 == 10;
         \\ 10 != 9;
+        \\ "foobar"
+        \\ "foo bar"
+        \\ [1, 2];
     ;
 
     const tests = [_]Token{
@@ -263,6 +292,14 @@ test "Next Token" {
         try Token.test_new_int("10", alloc),
         .NOT_EQ,
         try Token.test_new_int("9", alloc),
+        .SEMICOLON,
+        try Token.test_new_str("foobar", alloc),
+        try Token.test_new_str("foo bar", alloc),
+        .LBRACKET,
+        try Token.test_new_int("1", alloc),
+        .COMMA,
+        try Token.test_new_int("2", alloc),
+        .RBRACKET,
         .SEMICOLON,
         .EOF,
     };

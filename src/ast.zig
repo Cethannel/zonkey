@@ -156,6 +156,23 @@ pub const Expression = union(enum) {
             return c.token.token_literal();
         }
     },
+    String: struct {
+        token: token.Token,
+        value: []const u8,
+
+        pub fn token_literal(c: @This()) anyerror![]const u8 {
+            return c.token.token_literal();
+        }
+    },
+    Array: struct {
+        token: token.Token,
+        elements: std.ArrayList(Expression),
+    },
+    Index: struct {
+        token: token.Token,
+        left: ?*Expression,
+        index: ?*Expression,
+    },
 
     pub fn string(
         self: *const Expression,
@@ -247,6 +264,36 @@ pub const Expression = union(enum) {
                     try writer.writeAll(try value.string(innerAlloc));
                 }
                 try writer.writeAll(")");
+
+                return out.items;
+            },
+            .String => |expr| {
+                return expr.token.token_literal();
+            },
+            .Array => |expr| {
+                var out = std.ArrayList(u8).init(alloc);
+                var writer = out.writer();
+
+                try writer.writeAll("[");
+                for (expr.elements.items, 0..) |value, i| {
+                    if (i != 0) {
+                        try writer.writeAll(", ");
+                    }
+                    try writer.writeAll(try value.string(innerAlloc));
+                }
+                try writer.writeAll("]");
+
+                return out.items;
+            },
+            .Index => |expr| {
+                var out = std.ArrayList(u8).init(alloc);
+                var writer = out.writer();
+
+                try writer.writeAll("(");
+                try writer.writeAll(try expr.left.?.string(innerAlloc));
+                try writer.writeAll("[");
+                try writer.writeAll(try expr.index.?.string(innerAlloc));
+                try writer.writeAll("])");
 
                 return out.items;
             },

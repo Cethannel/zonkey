@@ -109,6 +109,31 @@ pub fn eval(
                     }
                     return applyFunction(function, args, env);
                 },
+                .String => |str| {
+                    return object.Object{
+                        .String = .{ .value = str.value },
+                    };
+                },
+                .Array => |arr| {
+                    var elements = try evalExpressions(arr.elements, env);
+                    if (elements.items.len == 1 and isError(elements.items[0])) {
+                        defer elements.clearAndFree();
+                        return elements.items[0];
+                    }
+                    return object.Object{ .Array = .{ .elements = elements } };
+                },
+                .Index => |idx| {
+                    const left = try eval(idx.left, env);
+                    if (isError(left)) {
+                        return left;
+                    }
+                    const index = try eval(idx.index, env);
+                    if (isError(index)) {
+                        return index;
+                    }
+                    return evalIndexExpression(left, index, env);
+                },
+                //else => unreachable,
             }
         },
         else => {
@@ -117,20 +142,54 @@ pub fn eval(
     }
 }
 
+fn evalIndexExpression(
+    left: object.Object,
+    index: object.Object,
+    env: *object.Environment,
+) !object.Object {
+    if (equalTag(left, .Array) and equalTag(index, .Integer)) {
+        return evalArrayIndexExpression(left, index);
+    } else {
+        return newError(
+            env,
+            "index operation not supported: {s}",
+            .{@tagName(left)},
+        );
+    }
+}
+
+fn evalArrayIndexExpression(
+    array: object.Object,
+    index: object.Object,
+) object.Object {
+    const arrayObject = array.Array;
+    const idx = index.Integer.value;
+    const max = @as(i64, @intCast(arrayObject.elements.items.len - 1));
+
+    if (idx < @as(i64, 0) or idx > max) {
+        return .Null;
+    }
+
+    return arrayObject.elements.items[@intCast(idx)];
+}
+
 fn applyFunction(
     node: object.Object,
     args: std.ArrayList(object.Object),
     env: *object.Environment,
 ) !object.Object {
     switch (node) {
-        .Function => {},
+        .Function => {
+            var extendedEnv = try extendFunctionEnv(node, args);
+            defer extendedEnv.deinit();
+            const evaluatod = try eval(node.Function.body, &extendedEnv);
+            return unwrapReturnValue(evaluatod);
+        },
+        .Builtin => |fun| {
+            return try fun.fun(args.items, env);
+        },
         else => return newError(env, "not a function: {s}", .{@tagName(node)}),
     }
-
-    var extendedEnv = try extendFunctionEnv(node, args);
-    defer extendedEnv.deinit();
-    const evaluatod = try eval(node.Function.body, &extendedEnv);
-    return unwrapReturnValue(evaluatod);
 }
 
 fn extendFunctionEnv(
@@ -181,6 +240,196 @@ fn isTruthy(obj: object.Object) bool {
     }
 }
 
+const chm = @import("comptime_hash_map");
+
+fn GenBuiltins() type {
+    const funcs = struct {
+        fn len(args: []object.Object, env: *object.Environment) !object.Object {
+            if (args.len != 1) {
+                return newError(
+                    env,
+                    "wrong number of arguments. got={}, want=1",
+                    .{args.len},
+                );
+            }
+
+            switch (args[0]) {
+                .String => |str| {
+                    return object.Object{ .Integer = .{
+                        .value = @intCast(str.value.len),
+                    } };
+                },
+                .Array => |arr| {
+                    return object.Object{ .Integer = .{
+                        .value = @intCast(arr.elements.items.len),
+                    } };
+                },
+                else => {
+                    return newError(
+                        env,
+                        "argument to 'len' not supported, got {s}",
+                        .{@tagName(args[0])},
+                    );
+                },
+            }
+        }
+
+        fn first(args: []object.Object, env: *object.Environment) !object.Object {
+            if (args.len != 1) {
+                return newError(
+                    env,
+                    "wrong number of arguments. got={}, want=1",
+                    .{args.len},
+                );
+            }
+
+            switch (args[0]) {
+                .Array => |arr| {
+                    if (arr.elements.items.len > 0) {
+                        return arr.elements.items[0];
+                    }
+                    return .Null;
+                },
+                else => {
+                    return newError(
+                        env,
+                        "argument to 'first' myst be Array, got {s}",
+                        .{@tagName(args[0])},
+                    );
+                },
+            }
+        }
+
+        fn last(args: []object.Object, env: *object.Environment) !object.Object {
+            if (args.len != 1) {
+                return newError(
+                    env,
+                    "wrong number of arguments. got={}, want=1",
+                    .{args.len},
+                );
+            }
+
+            switch (args[0]) {
+                .Array => |arr| {
+                    const length = arr.elements.items.len;
+                    if (length > 0) {
+                        return arr.elements.items[length - 1];
+                    }
+                    return .Null;
+                },
+                else => {
+                    return newError(
+                        env,
+                        "argument to 'last' myst be Array, got {s}",
+                        .{@tagName(args[0])},
+                    );
+                },
+            }
+        }
+
+        fn rest(args: []object.Object, env: *object.Environment) !object.Object {
+            if (args.len != 1) {
+                return newError(
+                    env,
+                    "wrong number of arguments. got={}, want=1",
+                    .{args.len},
+                );
+            }
+
+            switch (args[0]) {
+                .Array => |arr| {
+                    const length = arr.elements.items.len;
+                    if (length > 0) {
+                        var newElems = std.ArrayList(object.Object) //
+                            .init(env.alloc);
+                        try newElems.resize(length - 1);
+                        @memcpy(newElems.items, arr.elements.items[1..]);
+                        return object.Object{
+                            .Array = .{ .elements = newElems },
+                        };
+                    }
+                    return .Null;
+                },
+                else => {
+                    return newError(
+                        env,
+                        "argument to 'last' myst be Array, got {s}",
+                        .{@tagName(args[0])},
+                    );
+                },
+            }
+        }
+
+        fn push(args: []object.Object, env: *object.Environment) !object.Object {
+            if (args.len != 2) {
+                return newError(
+                    env,
+                    "wrong number of arguments. got={}, want=2",
+                    .{args.len},
+                );
+            }
+
+            switch (args[0]) {
+                .Array => |arr| {
+                    const length = arr.elements.items.len;
+                    if (length > 0) {
+                        var newElems = std.ArrayList(object.Object) //
+                            .init(env.alloc);
+                        try newElems.resize(length);
+                        @memcpy(newElems.items, arr.elements.items);
+                        try newElems.append(args[1]);
+                        return object.Object{
+                            .Array = .{ .elements = newElems },
+                        };
+                    }
+                    return .Null;
+                },
+                else => {
+                    return newError(
+                        env,
+                        "argument to 'push' myst be Array, got {s}",
+                        .{@tagName(args[0])},
+                    );
+                },
+            }
+        }
+    };
+
+    return chm.ComptimeStringHashMap(object.Object, .{
+        .{
+            "len",
+            object.Object{
+                .Builtin = .{ .fun = funcs.len },
+            },
+        },
+        .{
+            "first",
+            object.Object{
+                .Builtin = .{ .fun = funcs.first },
+            },
+        },
+        .{
+            "last",
+            object.Object{
+                .Builtin = .{ .fun = funcs.last },
+            },
+        },
+        .{
+            "rest",
+            object.Object{
+                .Builtin = .{ .fun = funcs.rest },
+            },
+        },
+        .{
+            "push",
+            object.Object{
+                .Builtin = .{ .fun = funcs.push },
+            },
+        },
+    });
+}
+const BuiltIns = GenBuiltins();
+
 const InfixCase = enum {
     @"+",
     @"-",
@@ -204,6 +453,8 @@ fn evalInfixExpression(
 ) !object.Object {
     if (equalTag(left, .Integer) and equalTag(right, .Integer)) {
         return evalIntegerInfixExpression(operator, left, right, env);
+    } else if (equalTag(left, .String) and equalTag(right, .String)) {
+        return evalStringInfixExpression(operator, left, right, env);
     } else if (strEql(operator, "==")) {
         if (std.meta.eql(left, right)) {
             return TRUE;
@@ -235,6 +486,26 @@ inline fn strEql(a: []const u8, b: []const u8) bool {
     return std.mem.eql(u8, a, b);
 }
 
+fn evalStringInfixExpression(
+    operator: []const u8,
+    left: object.Object,
+    right: object.Object,
+    env: *object.Environment,
+) !object.Object {
+    if (!strEql(operator, "+")) {
+        return newError(env, "unkown operator: {s} {s} {s}", .{
+            @tagName(left),
+            operator,
+            @tagName(right),
+        });
+    }
+    const leftVal = left.String.value;
+    const rightVal = right.String.value;
+
+    const outStr = try std.mem.concat(env.alloc, u8, &.{ leftVal, rightVal });
+    return object.Object{ .String = .{ .value = outStr } };
+}
+
 fn evalIntegerInfixExpression(
     operator: []const u8,
     left: object.Object,
@@ -245,7 +516,7 @@ fn evalIntegerInfixExpression(
     const rightVal = right.Integer.value;
 
     const case = std.meta.stringToEnum(InfixCase, operator) //
-    orelse return newError(env, "type missmatch: {s} {s} {s}", .{
+    orelse return newError(env, "unkown operator: {s} {s} {s}", .{
         @tagName(left),
         operator,
         @tagName(right),
@@ -439,7 +710,10 @@ fn evalIdentifier(
 ) !object.Object {
     if (env.get(node.value)) |val| {
         return val;
+    } else if (BuiltIns.get(node.value)) |builtin| {
+        return builtin.*;
     } else {
+        env.print();
         return newError(env, "identifier not found: {s}", .{node.value});
     }
 }
@@ -818,6 +1092,12 @@ test "Error Handling" {
             .input = "foobar",
             .expectedMessage = "identifier not found: foobar",
         },
+        .{
+            .input =
+            \\ "hello" - "world"
+            ,
+            .expectedMessage = "unkown operator: String - String",
+        },
     };
 
     var arenaAlloc = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -920,5 +1200,164 @@ test "Function Application" {
     for (tests) |tt| {
         const evaluated = try testEval(tt.input, alloc);
         try testIntegerObject(evaluated, tt.expected);
+    }
+}
+
+test "String Literal" {
+    const input =
+        \\"Hello World!"
+    ;
+    var arenaAlloc = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arenaAlloc.deinit();
+    const alloc = arenaAlloc.allocator();
+    const evaluated = try testEval(input, alloc);
+    const str = evaluated.String;
+    try std.testing.expectEqualStrings("Hello World!", str.value);
+}
+
+test "String Concatination" {
+    const input =
+        \\"Hello" + " " + "World!"
+    ;
+    var arenaAlloc = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arenaAlloc.deinit();
+    const alloc = arenaAlloc.allocator();
+    const evaluated = try testEval(input, alloc);
+    const str = evaluated.String;
+    try std.testing.expectEqualStrings("Hello World!", str.value);
+}
+
+const valType = union(enum) {
+    int: i64,
+    str: []const u8,
+};
+
+test "Builtin Function" {
+    const tests = [_]struct {
+        input: []const u8,
+        expected: valType,
+    }{
+        .{
+            .input =
+            \\len("")
+            ,
+            .expected = .{ .int = 0 },
+        },
+        .{
+            .input =
+            \\len("four")
+            ,
+            .expected = .{ .int = 4 },
+        },
+        .{
+            .input =
+            \\len("hello world")
+            ,
+            .expected = .{ .int = 11 },
+        },
+        .{
+            .input =
+            \\len(1)
+            ,
+            .expected = .{ .str = "argument to 'len' not supported, got Integer" },
+        },
+        .{
+            .input =
+            \\len("one", "two")
+            ,
+            .expected = .{ .str = "wrong number of arguments. got=2, want=1" },
+        },
+    };
+
+    var arenaAlloc = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arenaAlloc.deinit();
+    const alloc = arenaAlloc.allocator();
+
+    for (tests) |tt| {
+        const evaluated = try testEval(tt.input, alloc);
+        switch (tt.expected) {
+            .int => |expected| {
+                try testIntegerObject(evaluated, expected);
+            },
+            .str => |expected| {
+                const errorObj = evaluated.Error;
+                try std.testing.expectEqualStrings(expected, errorObj.message);
+            },
+        }
+    }
+}
+
+test "Array Literals" {
+    var arenaAlloc = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arenaAlloc.deinit();
+    const alloc = arenaAlloc.allocator();
+    const input = "[1, 2 * 2, 3 + 3]";
+    const evaluated = try testEval(input, alloc);
+    const result = evaluated.Array;
+
+    try std.testing.expectEqual(3, result.elements.items.len);
+    try testIntegerObject(result.elements.items[0], 1);
+    try testIntegerObject(result.elements.items[1], 4);
+    try testIntegerObject(result.elements.items[2], 6);
+}
+
+test "Array Index Expressions" {
+    const tests = [_]struct {
+        input: []const u8,
+        expected: ?i64,
+    }{
+        .{
+            .input = "[1, 2, 3][0]",
+            .expected = 1,
+        },
+        .{
+            .input = "[1, 2, 3][1]",
+            .expected = 2,
+        },
+        .{
+            .input = "[1, 2, 3][2]",
+            .expected = 3,
+        },
+        .{
+            .input = "let i = 0; [1][i];",
+            .expected = 1,
+        },
+        .{
+            .input = "[1, 2, 3][1 + 1];",
+            .expected = 3,
+        },
+        .{
+            .input = "let myArray = [1, 2, 3]; myArray[2];",
+            .expected = 3,
+        },
+        .{
+            .input = "let myArray = [1, 2, 3]; myArray[0] + myArray[1] + myArray[2];",
+            .expected = 6,
+        },
+        .{
+            .input = "let myArray = [1, 2, 3]; let i = myArray[0]; myArray[i]",
+            .expected = 2,
+        },
+        .{
+            .input = "[1, 2, 3][3]",
+            .expected = null,
+        },
+        .{
+            .input = "[1, 2, 3][-1]",
+            .expected = null,
+        },
+    };
+
+    var arenaAlloc = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arenaAlloc.deinit();
+    const alloc = arenaAlloc.allocator();
+
+    for (tests) |tt| {
+        const evaluated = try testEval(tt.input, alloc);
+        if (tt.expected) |expected| {
+            try testIntegerObject(evaluated, expected);
+        } else {
+            try testNullObject(evaluated);
+        }
     }
 }
