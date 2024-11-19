@@ -31,6 +31,7 @@ pub fn start(in: std.fs.File, out: std.fs.File, galloc: std.mem.Allocator) !void
         }
 
         const evaluated = try evaluator.eval(program, &env);
+        std.log.info("Evaluated: {}", .{@intFromEnum(evaluated)});
         try writer.writeAll(try evaluated.inspect(alloc));
         try writer.writeAll("\n");
 

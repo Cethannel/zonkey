@@ -103,8 +103,8 @@ pub fn eval(
                         return function;
                     }
                     var args = try evalExpressions(call.arguments, env);
+                    defer args.clearAndFree();
                     if (args.items.len == 1 and isError(args.items[0])) {
-                        defer args.clearAndFree();
                         return args.items[0];
                     }
                     return applyFunction(function, args, env);
@@ -713,7 +713,6 @@ fn evalIdentifier(
     } else if (BuiltIns.get(node.value)) |builtin| {
         return builtin.*;
     } else {
-        env.print();
         return newError(env, "identifier not found: {s}", .{node.value});
     }
 }
@@ -1191,6 +1190,10 @@ test "Function Application" {
             .input = "fn(x) { x; }(5)",
             .expected = 5,
         },
+        .{
+            .input = "let a = fn(a, b) { a + b; }; a(1, 3)",
+            .expected = 4,
+        },
     };
 
     var arenaAlloc = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -1359,5 +1362,54 @@ test "Array Index Expressions" {
         } else {
             try testNullObject(evaluated);
         }
+    }
+}
+
+test "Environment Free" {
+    const input =
+        \\ let a = fn(a,b) {a+b;};
+        \\ a(1,2)
+    ;
+
+    var arenaAlloc = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arenaAlloc.deinit();
+    const galloc = arenaAlloc.allocator();
+    var env = object.Environment.init(galloc);
+    defer env.deinit();
+
+    var lines = std.mem.split(u8, input, "\n");
+    var last: object.Object = object.Object.Null;
+
+    while (lines.next()) |line| {
+        var arena = std.heap.ArenaAllocator.init(galloc);
+        const alloc = arena.allocator();
+
+        const l = lexer.Lexer.init(line, alloc);
+        var p = parser.Parser.init(l) catch unreachable;
+        const program = p.parse_program() catch unreachable;
+        if (p.errors.items.len != 0) {
+            printParseErrors(p.errors);
+            @panic("Had errors");
+        }
+
+        const evaluated = try eval(program, &env);
+        switch (evaluated) {
+            .Error => |err| {
+                @panic(err.message);
+            },
+            else => {
+                last = evaluated;
+            },
+        }
+    }
+
+    try testIntegerObject(last, 3);
+}
+
+fn printParseErrors(
+    errors: parser.Parser.Errors,
+) void {
+    for (errors.items) |err| {
+        std.debug.print("\t{s}\n", .{err});
     }
 }
