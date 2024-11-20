@@ -23,5 +23,9 @@ test {
     _ = parser;
     const evaluator = @import("evaluator.zig");
     _ = evaluator;
+    const code = @import("code.zig");
+    _ = code;
+    const compiler = @import("compiler.zig");
+    _ = compiler;
     @import("std").testing.refAllDecls(@This());
 }
