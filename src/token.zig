@@ -49,6 +49,29 @@ pub const Token = union(enum) {
     ELSE,
     RETURN,
 
+    pub fn clone_new_alloc(self: @This(), alloc: std.mem.Allocator) !@This() {
+        switch (self) {
+            .IDENT => |ident| {
+                return from_ident(ident.ident, alloc);
+            },
+            .INT => |int| {
+                return @This(){ .INT = .{
+                    .int = try alloc.dupeZ(u8, int.int),
+                    .alloc = alloc,
+                } };
+            },
+            .STRING => |str| {
+                return @This(){
+                    .STRING = .{
+                        .str = try alloc.dupeZ(u8, str.str),
+                        .alloc = alloc,
+                    },
+                };
+            },
+            else => return self,
+        }
+    }
+
     pub fn from_ident(ident: []const u8, alloc: std.mem.Allocator) !Token {
         const toko = IdentMap.get(ident);
         if (toko) |tok| {

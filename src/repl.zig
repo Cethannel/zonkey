@@ -20,7 +20,11 @@ pub fn start(in: std.fs.File, out: std.fs.File, galloc: std.mem.Allocator) !void
         var arena = std.heap.ArenaAllocator.init(galloc);
         const alloc = arena.allocator();
         try std.fmt.format(writer, "{s}", .{PROMPT});
-        const line = try reader.readUntilDelimiter(&buff, '\n');
+        const line = try reader.readUntilDelimiterOrEof(&buff, '\n') orelse return;
+        if (line.len == 0) {
+            try writer.writeAll("\n");
+            continue;
+        }
 
         const l = lexer.Lexer.init(line, alloc);
         var p = parser.Parser.init(l) catch unreachable;
@@ -31,7 +35,7 @@ pub fn start(in: std.fs.File, out: std.fs.File, galloc: std.mem.Allocator) !void
         }
 
         const evaluated = try evaluator.eval(program, &env);
-        std.log.info("Evaluated: {}", .{@intFromEnum(evaluated)});
+        std.log.info("Evaluated: {}\n", .{@intFromEnum(evaluated)});
         try writer.writeAll(try evaluated.inspect(alloc));
         try writer.writeAll("\n");
 

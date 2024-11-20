@@ -3,6 +3,7 @@ const object = @import("object.zig");
 const lexer = @import("lexer.zig");
 const parser = @import("parser.zig");
 const ast = @import("ast.zig");
+const utils = @import("utils.zig");
 
 const evalError = error{
     UnkownExpression,
@@ -87,8 +88,8 @@ pub fn eval(
                     return evalIdentifier(ident, env);
                 },
                 .FunctionLiteral => |func| {
-                    const params = func.parameters;
-                    const body = func.body;
+                    const params = try utils.clone_new_alloc(func.parameters, env.alloc);
+                    const body = try utils.clone_new_alloc(func.body, env.alloc);
                     return object.Object{
                         .Function = .{
                             .parameters = params,
@@ -107,7 +108,8 @@ pub fn eval(
                     if (args.items.len == 1 and isError(args.items[0])) {
                         return args.items[0];
                     }
-                    return applyFunction(function, args, env);
+                    const out = try applyFunction(function, args, env);
+                    return utils.clone_new_alloc(out, env.alloc);
                 },
                 .String => |str| {
                     return object.Object{
@@ -183,6 +185,7 @@ fn applyFunction(
             var extendedEnv = try extendFunctionEnv(node, args);
             defer extendedEnv.deinit();
             const evaluatod = try eval(node.Function.body, &extendedEnv);
+            std.log.info("Returning: {any}\n", .{evaluatod});
             return unwrapReturnValue(evaluatod);
         },
         .Builtin => |fun| {
@@ -523,7 +526,9 @@ fn evalIntegerInfixExpression(
     });
     switch (case) {
         .@"+" => {
-            return object.Object{ .Integer = .{ .value = leftVal + rightVal } };
+            const out = object.Object{ .Integer = .{ .value = leftVal + rightVal } };
+            std.log.info("Reurning add: {any}\n", .{out});
+            return out;
         },
         .@"-" => {
             return object.Object{ .Integer = .{ .value = leftVal - rightVal } };

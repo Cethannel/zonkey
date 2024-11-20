@@ -1,5 +1,6 @@
 const std = @import("std");
 const ast = @import("ast.zig");
+const util = @import("utils.zig");
 
 pub const BuiltinFn = fn (args: []Object, env: *Environment) anyerror!Object;
 
@@ -21,6 +22,16 @@ pub const Object = union(enum) {
         parameters: std.ArrayList(ast.Identifier),
         body: ast.Block,
         env: *Environment,
+
+        pub fn clone_new_alloc(self: @This(), alloc: std.mem.Allocator) !@This() {
+            const params = try util.clone_new_alloc(self.parameters, alloc);
+            const body = try util.clone_new_alloc(self.body, alloc);
+            return @This(){
+                .parameters = params,
+                .body = body,
+                .env = self.env,
+            };
+        }
     },
     String: struct {
         value: []const u8,
